@@ -1,0 +1,18 @@
+{
+    "configurations": [
+        {
+            "name": "config",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/usr/include/**",
+                "/Library/Developer/CommandLineTools/SDKs/MacOSX13.1.sdk/usr/include/**"
+            ],
+            "defines": [
+                "_DEBUG",
+                "UNICODE",
+                "_UNICODE"
+            ]
+        }
+    ],
+    "version": 4
+}
