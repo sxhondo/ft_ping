@@ -1,7 +1,12 @@
 {
     "files.associations": {
+        "in.h": "c",
         "inet.h": "c",
+        "netdb.h": "c",
+        "types.h": "c",
         "socket.h": "c",
-        "ip.h": "c"
+        "stdio.h": "c",
+        "string.h": "c",
+        "stdlib.h": "c"
     }
 }

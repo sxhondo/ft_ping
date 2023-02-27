@@ -5,13 +5,19 @@
             "includePath": [
                 "${workspaceFolder}/**",
                 "/usr/include/**",
+                "/usr/include/x86_64-linux-gnu/sys/**",
+                "/usr/include/netinet/**",
+                "/usr/include/arpa/**",
                 "/Library/Developer/CommandLineTools/SDKs/MacOSX13.1.sdk/usr/include/**"
             ],
             "defines": [
                 "_DEBUG",
                 "UNICODE",
-                "_UNICODE"
-            ]
+                "_UNICODE",
+                "_GNU_SOURCE"
+            ],
+            "compilerPath": "/usr/bin/clang",
+            "intelliSenseMode": "linux-clang-x64"
         }
     ],
     "version": 4
