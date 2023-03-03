@@ -7,6 +7,7 @@
         "socket.h": "c",
         "stdio.h": "c",
         "string.h": "c",
-        "stdlib.h": "c"
+        "stdlib.h": "c",
+        "ip_icmp.h": "c"
     }
 }
