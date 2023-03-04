@@ -58,13 +58,13 @@ main(int argc, char **argv)
         }
     }
 
-    printf("PING %s (%s) %d(%d) bytes of data.\n", argv[1], ipstr, 1, 1);
     int icmp_sock = socket(PF_INET, SOCK_RAW, IPPROTO_ICMP);
     if (icmp_sock < 0)
     {
         perror("ping: icmp open socket");
         exit(2);
     }
+
 
     u_char outpackhdr[IP_MAXPACKET], *outpack;
     outpack = outpackhdr + sizeof(struct ip);
@@ -80,15 +80,17 @@ main(int argc, char **argv)
 
     int cc = ICMP_MINLEN + 56;
 
+    printf("PING %s (%s) %d(%d) bytes of data.\n", argv[1], ipstr, 1, 1);
     int sent = sendto(
         icmp_sock,
-        &outpack,
+        (char *)outpack,
         cc,
         0,
-        (struct sockaddr *)dest,
+        (struct sockaddr *)&dest,
         sizeof(dest)
     );
 
+    printf("bytes sent: %d", sent);
     freeaddrinfo(res);
     close(icmp_sock);
     return 0;
