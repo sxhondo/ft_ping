@@ -23,6 +23,49 @@
 //     ping_loop = 0;
 // }
 
+/*
+ * in_cksum --
+ *	Checksum routine for Internet Protocol family headers (C Version)
+ */
+u_short
+in_cksum(u_short *addr, int len)
+{
+	int nleft, sum;
+	u_short *w;
+	union {
+		u_short	us;
+		u_char	uc[2];
+	} last;
+	u_short answer;
+
+	nleft = len;
+	sum = 0;
+	w = addr;
+
+	/*
+	 * Our algorithm is simple, using a 32 bit accumulator (sum), we add
+	 * sequential 16 bit words to it, and at the end, fold back all the
+	 * carry bits from the top 16 bits into the lower 16 bits.
+	 */
+	while (nleft > 1)  {
+		sum += *w++;
+		nleft -= 2;
+	}
+
+	/* mop up an odd byte, if necessary */
+	if (nleft == 1) {
+		last.uc[0] = *(u_char *)w;
+		last.uc[1] = 0;
+		sum += last.us;
+	}
+
+	/* add back carry outs from top 16 bits to low 16 bits */
+	sum = (sum >> 16) + (sum & 0xffff);	/* add hi 16 to low 16 */
+	sum += (sum >> 16);			/* add carry */
+	answer = ~sum;				/* truncate to 16 bits */
+	return(answer);
+}
+
 int 
 main(int argc, char **argv)
 {
@@ -69,6 +112,9 @@ main(int argc, char **argv)
     u_char outpackhdr[IP_MAXPACKET], *outpack;
     outpack = outpackhdr + sizeof(struct ip);
 
+    int defdatalen = 56;
+    int cc = ICMP_MINLEN + defdatalen;
+
     struct icmp *icp;
 
     icp = (struct icmp *)outpack;
@@ -78,19 +124,40 @@ main(int argc, char **argv)
 	icp->icmp_seq = htons(1);
 	icp->icmp_id = getpid();
 
-    int cc = ICMP_MINLEN + 56;
+    icp->icmp_cksum = in_cksum((u_short *)icp, cc);
 
-    printf("PING %s (%s) %d(%d) bytes of data.\n", argv[1], ipstr, 1, 1);
+    printf("PING %s (%s) %d(%lu) bytes of data.\n", 
+        argv[1], 
+        ipstr, 
+        defdatalen, 
+        defdatalen + sizeof(struct ip) + sizeof(struct icmphdr)
+    );
+
     int sent = sendto(
         icmp_sock,
         (char *)outpack,
         cc,
         0,
-        (struct sockaddr *)&dest,
-        sizeof(dest)
+        (struct sockaddr *)dest,
+        sizeof(struct sockaddr)
     );
-
+    if (sent <= 0)
+    {
+        perror("sent failed");
+    }
     printf("bytes sent: %d", sent);
+
+    // struct sockaddr_in retaddr; 
+    // int recv = recvfrom(
+    //     icmp_sock,
+    //     (char *)outpack,
+    //     cc,
+    //     0,
+    //     (struct sockaddr *)&retaddr,
+    //     sizeof(struct sockaddr)
+    // );
+    // printf("bytes received: %d", recv);
+
     freeaddrinfo(res);
     close(icmp_sock);
     return 0;
