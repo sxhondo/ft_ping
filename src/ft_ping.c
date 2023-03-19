@@ -16,15 +16,22 @@
 #include <netinet/in.h>
 #include <netinet/ip_icmp.h>
 
-#define	SLEEP_TIME	1000000
+#define	SLEEP_TIME	    1000000
+
+struct tv32 {
+	u_int32_t sec;
+	u_int32_t usec;
+};
 
 int icmp_sock;
 int finish_up;
 
-int defdatalen = 56;
-int cc = ICMP_MINLEN + 56;
-int ntransmitted;
-int nreceived;
+int icmp_size = sizeof(struct icmphdr) + sizeof(struct tv32) + 48;
+int icmp_ip_size = sizeof(struct ip) + 64;
+
+int npackets;       /* amount of packets to transmit */
+int ntransmitted;   /* amount of transmitted packets */
+int nreceived;      /* amount of packets we got back */
 
 char ipstr[INET6_ADDRSTRLEN];
 
@@ -38,11 +45,6 @@ int options;
 struct sockaddr_in  *dest;
 struct addrinfo     *lookup_res;
 
-struct tv32 {
-	u_int32_t sec;
-	u_int32_t usec;
-};
-
 void
 stop_it(int ignored)
 {
@@ -54,10 +56,13 @@ print_hex(void *mem, int len)
 {
     puts("=======================================");
     u_char *p = mem;
+    int rows = 0;
     for (int i = 0; i < len; i++)
     {
-        if (i != 0 && i % 8 == 0)
+        if (i % 8 == 0)
             putchar('\n');
+        // if (i % 8 == 0)
+        //     printf("0x%.4x: ", rows++);
         printf("%02x%02x ", *p, *(p + 1));
         p += 2;
     }
@@ -212,12 +217,12 @@ pinger(void)
         (void *)&tv32,
         sizeof(tv32));
 
-    icp->icmp_cksum = in_cksum((u_short *)icp, cc);
+    icp->icmp_cksum = in_cksum((u_short *)icp, icmp_size);
 
     int sent = sendto(
         icmp_sock,
         outpack,
-        cc,
+        icmp_size,
         0,
         (struct sockaddr *)dest,
         sizeof(struct sockaddr));
@@ -233,12 +238,13 @@ receiver(void)
     struct icmp *icp;
     struct sockaddr_in from;
     u_char inpacket[IP_MAXPACKET], *inpack = inpacket;
+    char *hostfrom;
 
     int fromlen = sizeof(struct sockaddr);
     int recv = recvfrom(
         icmp_sock,
         inpack,
-        cc,
+        icmp_size,
         0,
         (struct sockaddr *)&from,
         &fromlen);
@@ -247,55 +253,101 @@ receiver(void)
 
     ip = (struct ip *)inpack;
     icp = (struct icmp *)(inpack + sizeof(struct ip));
-    
     if (options & F_VERBOSE)
-    {
         print_hex(ip, sizeof(struct ip) + sizeof(struct icmp));
+    
+    hostfrom = inet_ntoa(*(struct in_addr *)&from.sin_addr.s_addr);
+    if (icp->icmp_type == ICMP_ECHOREPLY)
+    {
+        nreceived++;
+        double triptime = round_trip(icp);
+
+        printf("%d bytes from %s:", recv, hostfrom);
+        printf(" icmp_seq=%d", ntransmitted);
+        printf(" ttl=%d", ip->ip_ttl);
+        printf(" time=%.3f ms\n", triptime);
     }
-
-    double triptime = round_trip(icp);
-    nreceived++;
-
-    printf("%d bytes from %s:", recv, inet_ntoa(*(struct in_addr *)&from.sin_addr.s_addr));
-    printf(" icmp_seq=%d", ntransmitted);
-    printf(" ttl=%d", ip->ip_ttl);
-    printf(" time=%.3f ms\n", triptime);
+    else if (icp->icmp_type == ICMP_UNREACH)
+    {
+        printf("From %s icmp_seq=%d ", hostfrom, ntransmitted);
+        switch (icp->icmp_code)
+        {
+            case ICMP_UNREACH_NET:
+                printf("Destination Net Unreachable\n");
+                break;
+            case ICMP_UNREACH_HOST:
+                printf("Destination Host Unreachable\n");
+                break;
+            case ICMP_UNREACH_PROTOCOL:
+                printf("Destination Protocol Unreachable\n");
+                break;
+            case ICMP_UNREACH_PORT:
+                printf("Destination Port Unreachable\n");
+                break;
+            default:
+                printf("Unsupported icmp_code: [%d]\n", icp->icmp_code);
+                break;
+        }
+    }
+    else if (icp->icmp_type == ICMP_TIMXCEED)
+    {
+        printf("From %s icmp_seq=%d ", hostfrom, ntransmitted);
+        switch (icp->icmp_code)
+        {
+            case ICMP_TIMXCEED_INTRANS:
+                printf("Time to live exceeded\n");
+                break;
+            default:
+                printf("Unsupported icmp_code: [%d]\n", icp->icmp_code);
+                break;
+        }
+    }
+    else
+        printf("Unsuported icmp_type: [%d] icmp_code: [%d]\n", icp->icmp_type, icp->icmp_code);        
 }
 
 int
 main(int argc, char **argv)
 {
     int ch;
-    char *tmp;
+    u_long tmparg;
+    char *endptr, *target;
 
-    dns_lookup(argv[1]);
-    signal(SIGINT, stop_it);
-
-    // socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP) still produces socket() failed: Permission denied
-    // although SOCK_DGRAM does not require root, probably IPPROTO_ICMP  `
-    icmp_sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
-    if (icmp_sock < 0)
-        err(EX__BASE, "socket() failed");
-
-    while ((ch = getopt(argc, argv, "T:t:vV")) != -1)
+    while ((ch = getopt(argc, argv, "T:t:C:c:vV")) != -1)
     {
         switch (ch)
         {
             case 'T':
             case 't':
-                ttl = strtol(optarg, &tmp, 0);
+                tmparg = strtol(optarg, &endptr, 0);
                 if (ttl > MAXTTL)
                     errx(EX_USAGE, "invalid TTL: %s", optarg);
                 options |= F_TTL;
+                ttl = tmparg;
                 break;
             case 'V':
             case 'v':
                 options |= F_VERBOSE;
                 break;
+            case 'C':
+            case 'c':
+                tmparg = strtoul(optarg, &endptr, 0);
+                if (tmparg <= 0)
+                    errx(EX_USAGE, "invalid count of packets: %s", optarg);
+                npackets = tmparg;
             default:
                 break;
         }
     }
+
+    target = argv[optind];
+    dns_lookup(target);
+
+    // socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP) still produces socket() failed: Permission denied
+    // although SOCK_DGRAM does not require root, probably IPPROTO_ICMP does
+    icmp_sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+    if (icmp_sock < 0)
+        err(EX__BASE, "socket() failed");
 
     if (options & F_TTL)
     {
@@ -303,22 +355,27 @@ main(int argc, char **argv)
             err(EX_OSERR, "setsockopt()");
     }
 
-    printf("PING %s (%s) %d(%lu) bytes of data.\n",
-           argv[1],
+    signal(SIGINT, stop_it);
+
+    printf("PING %s (%s) %ld(%d) bytes of data.\n",
+           target,
            ipstr,
-           defdatalen,
-           defdatalen + sizeof(struct ip) + sizeof(struct icmphdr));
+           icmp_size - sizeof(struct icmphdr),
+           icmp_ip_size);
 
     while (!finish_up)
     {
         pinger();
         receiver();
+        if (npackets == ntransmitted)
+            break;
         usleep(SLEEP_TIME);
-        break;
     }
 
-    printf("\n--- %s ping statistics ---\n", argv[1]);
-    printf("%d packets transmitted, %d received\n", ntransmitted, nreceived);
+    putchar('\n');
+    fflush(stdout);
+    printf("--- %s ping statistics ---\n", target);
+    printf("%d packets transmitted, %d received\n\n", ntransmitted, nreceived);
 
     freeaddrinfo(lookup_res);
     close(icmp_sock);
