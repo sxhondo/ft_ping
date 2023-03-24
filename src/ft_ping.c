@@ -46,6 +46,7 @@ void
 stop_it(int ignored)
 {
     finish_up = 1;
+    (void)ignored;
 }
 
 void
@@ -53,13 +54,10 @@ print_hex(void *mem, int len)
 {
     puts("=======================================");
     u_char *p = mem;
-    int rows = 0;
     for (int i = 0; i < len; i++)
     {
         if (i % 8 == 0)
             putchar('\n');
-        // if (i % 8 == 0)
-        //     printf("0x%.4x: ", rows++);
         printf("%02x%02x ", *p, *(p + 1));
         p += 2;
     }
@@ -132,7 +130,7 @@ dns_lookup(char dns[])
 
     if ((status = getaddrinfo(dns, NULL, &hints, &lookup_res)) != 0)
     {
-        fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
+        fprintf(stderr, "ft_ping: %s\n", gai_strerror(status));
         exit(2);
     }
 
@@ -232,7 +230,7 @@ receiver(void)
     u_char inpacket[IP_MAXPACKET], *inpack = inpacket;
     char *hostfrom;
 
-    int fromlen = sizeof(struct sockaddr);
+    u_int32_t fromlen = sizeof(struct sockaddr);
     int recv = recvfrom(
         icmp_sock,
         inpack,
@@ -304,7 +302,7 @@ main(int argc, char **argv)
     struct sigaction si_sa;
     char *endptr, *target;
     u_long tmparg, ttl;
-    int ch, timeout = 5;
+    int ch;
 
     while ((ch = getopt(argc, argv, "T:t:C:c:vV")) != -1)
     {
@@ -313,7 +311,7 @@ main(int argc, char **argv)
             case 'T':
             case 't':
                 tmparg = strtoul(optarg, &endptr, 0);
-                if (ttl > MAXTTL)
+                if (tmparg > MAXTTL)
                     errx(EX_USAGE, "invalid TTL: %s", optarg);
                 options |= F_TTL;
                 ttl = tmparg;
@@ -337,7 +335,7 @@ main(int argc, char **argv)
     target = argv[optind];
 
     dns_lookup(target);
-    icmp_sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);// socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP); results in socket() failed: Permission denied
+    icmp_sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP); // socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP); results in socket() failed: Permission denied
     if (icmp_sock < 0)
         err(EX__BASE, "socket() failed");
 

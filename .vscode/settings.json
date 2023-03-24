@@ -61,5 +61,6 @@
         "stdexcept": "c",
         "thread": "c",
         "cinttypes": "c"
-    }
+    },
+    "C_Cpp.errorSquiggles": "disabled"
 }
