@@ -33,17 +33,14 @@ int npackets;       /* amount of packets to transmit */
 int ntransmitted;   /* amount of transmitted packets */
 int nreceived;      /* amount of packets we got back */
 
-char ipstr[INET6_ADDRSTRLEN];
-
-u_long ttl;
-
-/* options */
 int options;
 #define F_VERBOSE   0x0001
 #define F_TTL       0x0002
 
 struct sockaddr_in  *dest;
 struct addrinfo     *lookup_res;
+
+char ipstr[INET6_ADDRSTRLEN];
 
 void
 stop_it(int ignored)
@@ -167,19 +164,14 @@ round_trip(struct icmp *icp)
 
     gettimeofday(&now, NULL);
 
-    // printf("in: %lu : %lu\n", in.tv_sec, in.tv_usec);
-    // printf("now: %lu : %lu\n", now.tv_sec, now.tv_usec);
-
-    diff.usec = now.tv_usec - in.tv_usec;
-    if (diff.usec < 0)
+    if ((int)(now.tv_usec - in.tv_usec) < 0)
     {
         now.tv_sec -= 1;
         now.tv_usec += 1000000;
     }
+    diff.usec = now.tv_usec - in.tv_usec;
     diff.sec = now.tv_sec - in.tv_sec;
-    // printf("diff: %u : %u\n", diff.sec, diff.usec);
 
-    // printf("diff: %f+%f\n", ((double)diff.sec) * 1000.0, ((double)diff.usec / 1000.0));
     triptime = ((double)diff.sec) * 1000.0 + ((double)diff.usec / 1000.0);
     return triptime;
 }
@@ -248,9 +240,9 @@ receiver(void)
         0,
         (struct sockaddr *)&from,
         &fromlen);
-    if (recv <= 0)
-        err(EX__BASE, "recvfrom() failed");
-
+    if (recv < 0)
+        return ;
+    
     ip = (struct ip *)inpack;
     icp = (struct icmp *)(inpack + sizeof(struct ip));
     if (options & F_VERBOSE)
@@ -303,15 +295,16 @@ receiver(void)
         }
     }
     else
-        printf("Unsuported icmp_type: [%d] icmp_code: [%d]\n", icp->icmp_type, icp->icmp_code);        
+        printf("Unsuported icmp_type: [%d] icmp_code: [%d]\n", icp->icmp_type, icp->icmp_code);
 }
 
 int
 main(int argc, char **argv)
 {
-    int ch;
-    u_long tmparg;
+    struct sigaction si_sa;
     char *endptr, *target;
+    u_long tmparg, ttl;
+    int ch, timeout = 5;
 
     while ((ch = getopt(argc, argv, "T:t:C:c:vV")) != -1)
     {
@@ -319,7 +312,7 @@ main(int argc, char **argv)
         {
             case 'T':
             case 't':
-                tmparg = strtol(optarg, &endptr, 0);
+                tmparg = strtoul(optarg, &endptr, 0);
                 if (ttl > MAXTTL)
                     errx(EX_USAGE, "invalid TTL: %s", optarg);
                 options |= F_TTL;
@@ -335,17 +328,16 @@ main(int argc, char **argv)
                 if (tmparg <= 0)
                     errx(EX_USAGE, "invalid count of packets: %s", optarg);
                 npackets = tmparg;
+                break ;
             default:
                 break;
         }
     }
 
     target = argv[optind];
-    dns_lookup(target);
 
-    // socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP) still produces socket() failed: Permission denied
-    // although SOCK_DGRAM does not require root, probably IPPROTO_ICMP does
-    icmp_sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+    dns_lookup(target);
+    icmp_sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);// socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP); results in socket() failed: Permission denied
     if (icmp_sock < 0)
         err(EX__BASE, "socket() failed");
 
@@ -354,8 +346,12 @@ main(int argc, char **argv)
         if ((setsockopt(icmp_sock, IPPROTO_IP, IP_TTL, &ttl, sizeof(ttl))) != 0)
             err(EX_OSERR, "setsockopt()");
     }
-
-    signal(SIGINT, stop_it);
+    
+    sigemptyset(&si_sa.sa_mask);    
+    si_sa.sa_flags = 0;
+    si_sa.sa_handler = stop_it;
+    if (sigaction(SIGINT, &si_sa, 0) == -1)
+        err(EX_OSERR, "sigaction SIGINT");
 
     printf("PING %s (%s) %ld(%d) bytes of data.\n",
            target,
