@@ -299,6 +299,7 @@ receiver(void)
 int
 main(int argc, char **argv)
 {
+    struct timeval timeout = { .tv_sec = 3, .tv_usec = 0 };
     struct sigaction si_sa;
     char *endptr, *target;
     u_long tmparg, ttl;
@@ -335,7 +336,7 @@ main(int argc, char **argv)
     target = argv[optind];
 
     dns_lookup(target);
-    icmp_sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP); // socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP); results in socket() failed: Permission denied
+    icmp_sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
     if (icmp_sock < 0)
         err(EX__BASE, "socket() failed");
 
@@ -344,7 +345,10 @@ main(int argc, char **argv)
         if ((setsockopt(icmp_sock, IPPROTO_IP, IP_TTL, &ttl, sizeof(ttl))) != 0)
             err(EX_OSERR, "setsockopt()");
     }
-    
+
+    if ((setsockopt(icmp_sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout))) != 0)
+        err(EX_OSERR, "setsockopt()");
+
     sigemptyset(&si_sa.sa_mask);    
     si_sa.sa_flags = 0;
     si_sa.sa_handler = stop_it;
